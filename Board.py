@@ -1,3 +1,4 @@
+
 import subprocess
 import ctypes
 from enum import Enum
@@ -11,6 +12,18 @@ COLOR_MAP = {
     "red" : Fore.RED,
     "blue" : Fore.BLUE
 }
+
+class Granularity(Enum):
+    BYTE = 1
+    DWORD = 2
+
+class HorizontalLayout(Enum):
+    LEFT_SIDE_LOW_ADDR = 1
+    RIGHT_SIDE_LOW_ADDR = 2
+
+class VerticalLayout(Enum):
+    TOP_SIDE_LOW_ADDR = 1
+    BOT_SIDE_LOW_ADDR = 2
 
 def color_print(msg, **kwargs):
     color_prefix = Fore.GREEN
@@ -27,32 +40,70 @@ def color_print(msg, **kwargs):
     print(color_prefix + msg + Fore.WHITE, **kwargs)
 
 class Table:
-	def __init__(self, n_cols:int=8, n_rows:int=N_ROWS_LIKE_N_COLS, default_value:str = '.'):
-		if n_rows == N_ROWS_LIKE_N_COLS:
-			n_rows = n_cols
-		self.n_cols = n_cols
-		self.n_rows = n_rows
-		self.table = [[default_value for _ in range(n_cols)] for _ in range(n_rows)]
-	
-	def __str__(self) -> str:
-		seperator_row = "+---"*self.n_cols+"+"+"\n"
-		res = seperator_row
-		for row in self.table:
-			res += "|"
-			for cell in row:
-				res += " "+cell+" |"
-			res += "\n"
-			res += seperator_row
-		return res
+    def __init__(self,
+            n_cols:int = 8,
+            n_rows:int = N_ROWS_LIKE_N_COLS,
+            default_value:str = '.',
+            horizontal_layout: HorizontalLayout = HorizontalLayout.LEFT_SIDE_LOW_ADDR,
+            vertical_layout: VerticalLayout = VerticalLayout.TOP_SIDE_LOW_ADDR    
+        ):
+        if n_rows == N_ROWS_LIKE_N_COLS:
+            n_rows = n_cols
 
-	def show(self):
-		color_print(self)
+        self.n_cols = n_cols
+        self.n_rows = n_rows
+        self.rows_list = [[default_value for _ in range(n_cols)] for _ in range(n_rows)]
+        
+        self.horizontal_layout = horizontal_layout
+        self.vertical_layout = vertical_layout
     
+    @staticmethod
+    def strsum(strlist: list, delim: str)->str:
+        res = ""
+        for s in strlist:
+            res += s+delim
+        return res
 
-class Granularity(Enum):
-    BYTE = 1
-    DWORD = 2
+    @staticmethod
+    def sfill(s: str, wanted_size: int)->str:
+        while len(s) < wanted_size:
+            s += " "
+        return s
 
+    def __str__(self) -> str:
+        NUM_LEFT_SPACES = 3
+        COLUMN_WIDTH = 4
+
+        #define seperator row:
+        printable_row_list = []
+        seperator_row = " "*NUM_LEFT_SPACES+"+---"*self.n_cols+"+"
+
+        printable_row_list.append(seperator_row)
+        for row_idx, row in enumerate(self.rows_list):
+            this_row = Table.sfill(str(row_idx), NUM_LEFT_SPACES)+"|"
+            for cell in row:
+                this_row += " "+cell+" |"
+            if self.horizontal_layout == HorizontalLayout.RIGHT_SIDE_LOW_ADDR:
+                this_row = this_row[::-1]
+            printable_row_list.append(this_row)
+            printable_row_list.append(seperator_row)
+        
+        if self.vertical_layout == VerticalLayout.BOT_SIDE_LOW_ADDR:
+            printable_row_list = printable_row_list[::-1]
+
+        #add index row:
+        index_row = " "*(NUM_LEFT_SPACES+2)
+        for idx in range(len(self.rows_list[0])):
+            effective_idx = idx
+            if self.horizontal_layout == HorizontalLayout.RIGHT_SIDE_LOW_ADDR:
+                effective_idx = len(self.rows_list[0])-idx
+            index_row += Table.sfill(str(effective_idx), COLUMN_WIDTH)
+        
+        return index_row + "\n" + Table.strsum(printable_row_list, '\n')
+        
+    def show(self):
+        color_print(self)
+    
 def join_dword(bytes_list: list)->int:
     res = 0
     for byte in bytes_list:
@@ -71,16 +122,25 @@ def convert_little_endian_dwords(bytes_list: list)->list:
     return dword_list
                 
 class ProcessWrapper:
-    def __init__(self, path_to_tgt: str, process_args: list, start_addr: int, num_cols: int, num_rows: int, high_row_addr_top: bool = True):
+    def __init__(self,
+            path_to_tgt: str,
+            start_addr: int,
+            num_cols: int,
+            num_rows: int,
+            process_args: list = [],
+            horizontal_layout: HorizontalLayout = HorizontalLayout.LEFT_SIDE_LOW_ADDR,
+            vertical_layout: VerticalLayout = VerticalLayout.TOP_SIDE_LOW_ADDR    
+        ):
         if process_args is not list:
             process_args = [process_args]
-        
         process_args = map(str, process_args)
 
         self.num_rows = num_rows
         self.num_cols = num_cols
         self.start_addr = start_addr
         self.size = num_cols * num_rows
+
+        self.table = Table(self.num_cols, self.num_rows, ' ', horizontal_layout, vertical_layout)
 
         self.prev_data = None
         self.cur_data = None
@@ -141,8 +201,6 @@ class ProcessWrapper:
         self.process.stdin.write(cmd.encode())
         color_print("Flushing")
         self.process.stdin.flush()
-        # process_out = self.process.stdout.readline()
-        # color_print(process_out.decode())
 
     def update_data(self):
         self.prev_data = self.cur_data
@@ -159,9 +217,7 @@ class ProcessWrapper:
                 res.add(idx)
         return res
 
-    def print_board_state(self):
-        t = Table(self.num_cols, self.num_rows)
-        
+    def print_board_state(self):        
         diff_positions = ProcessWrapper.find_diff_positions(self.cur_data, self.prev_data)
 
         if not self.cur_data:
@@ -173,12 +229,12 @@ class ProcessWrapper:
                 lin_pos = cur_col+cur_row*self.num_cols
                 curr_val = self.cur_data[lin_pos]
                 if curr_val > 9:
-                    t.table[cur_row][cur_col] = chr(self.cur_data[lin_pos])
+                    self.table.rows_list[cur_row][cur_col] = chr(self.cur_data[lin_pos])
                 else:
-                    t.table[cur_row][cur_col] = str(self.cur_data[lin_pos])
+                    self.table.rows_list[cur_row][cur_col] = str(self.cur_data[lin_pos])
                 if lin_pos in diff_positions:
-                    t.table[cur_row][cur_col] = Fore.RED + t.table[cur_row][cur_col] + Fore.BLUE
-        color_print(t, color='blue')
+                    self.table.rows_list[cur_row][cur_col] = Fore.RED + self.table.rows_list[cur_row][cur_col] + Fore.BLUE
+        color_print(self.table, color='blue')
 
 
     def add_module(self, input_addr_range: tuple, operation, granularity=Granularity.DWORD):

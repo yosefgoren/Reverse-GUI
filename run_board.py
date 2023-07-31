@@ -1,6 +1,6 @@
 from Board import *
 
-p = ProcessWrapper("w21a-cme.exe", [], 0x407020, 8, 8)
+p = ProcessWrapper("w21a-cme.exe", 0x407020, 8, 8, vertical_layout=VerticalLayout.BOT_SIDE_LOW_ADDR)
 
 def show_position(wrapper_obj: ProcessWrapper, mem_list: list):
     color_print(f"show_position:\n\tdword list is: {list(map(hex, mem_list))}", color='red')
