@@ -59,6 +59,8 @@ class ProcessWrapper:
         self.start_addr = start_addr
         self.size = num_cols * num_rows
 
+        self.prev_data = None
+
         self.process = subprocess.Popen([path_to_tgt, *process_args], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
         #need to define 'process, base_addr, size'
@@ -103,16 +105,32 @@ class ProcessWrapper:
         # process_out = self.process.stdout.readline()
         # color_print(process_out.decode())
 
+    def find_diff_positions(nested_ls_a: list, nested_ls_b: list)->set:
+        res = set()
+        for idx, (a, b) in enumerate(zip(nested_ls_a, nested_ls_b)):
+            if a != b:
+                res.add(idx)
+        return res
+
     def print_board_state(self):
         t = Table(self.num_cols, self.num_rows)
         data=self.read_proccess_memory()
+        if self.prev_data is not None:
+            diff_positions = ProcessWrapper.find_diff_positions(data, self.prev_data)
+        else:
+            diff_positions = set()
+
         if not data:
               color_print("wrapper cannot continue...")
         for cur_row in range(self.num_rows):
             for cur_col in range(self.num_cols):
-                curr_val = data[cur_col+cur_row*self.num_cols]
+                lin_pos = cur_col+cur_row*self.num_cols
+                curr_val = data[lin_pos]
                 if curr_val > 9:
-                    t.table[cur_row][cur_col] = chr(data[cur_col+cur_row*self.num_cols])
+                    t.table[cur_row][cur_col] = chr(data[lin_pos])
                 else:
-                    t.table[cur_row][cur_col] = str(data[cur_col+cur_row*self.num_cols])
+                    t.table[cur_row][cur_col] = str(data[lin_pos])
+                if lin_pos in diff_positions:
+                    t.table[cur_row][cur_col] = Fore.RED + t.table[cur_row][cur_col] + Fore.BLUE
         color_print(t, color='blue')
+        self.prev_data = data
