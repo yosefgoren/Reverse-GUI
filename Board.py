@@ -96,5 +96,9 @@ class ProcessWrapper:
               dbprint("wrapper cannot continue...")
         for cur_row in range(self.num_rows):
             for cur_col in range(self.num_cols):
-                t.table[cur_row][cur_col] = chr(data[cur_col+cur_row*self.num_cols])
+                curr_val = data[cur_col+cur_row*self.num_cols]
+                if curr_val > 9:
+                    t.table[cur_row][cur_col] = chr(data[cur_col+cur_row*self.num_cols])
+                else:
+                    t.table[cur_row][cur_col] = str(data[cur_col+cur_row*self.num_cols])
         dbprint(t)
