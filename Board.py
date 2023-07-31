@@ -1,9 +1,15 @@
 import subprocess
 import ctypes
 from ctypes import wintypes
+from colorama import Fore, Back, Style
 import time
 
 N_ROWS_LIKE_N_COLS = None
+
+def dbprint(msg, **kwargs):
+    if msg is not str:
+        msg = str(msg)
+    print(Fore.GREEN + msg + Fore.WHITE, **kwargs)
 
 class Table:
 	def __init__(self, n_cols:int=8, n_rows:int=N_ROWS_LIKE_N_COLS, default_value:str = '.'):
@@ -25,7 +31,7 @@ class Table:
 		return res
 
 	def show(self):
-		print(self)
+		dbprint(self)
                 
 class ProcessWrapper:
     def __init__(self, path_to_tgt: str, process_args: list, start_addr: int, num_cols: int, num_rows: int, high_row_addr_top: bool = True):
@@ -39,7 +45,7 @@ class ProcessWrapper:
         self.start_addr = start_addr
         self.size = num_cols * num_rows
 
-        self.process = subprocess.Popen([path_to_tgt, *process_args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.process = subprocess.Popen([path_to_tgt, *process_args], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
         #need to define 'process, base_addr, size'
 
@@ -71,22 +77,24 @@ class ProcessWrapper:
         self.print_board_state()
 
     def get_cmd(self):
-        command = input("pass input: ")+'\n'
+        dbprint("pass input: ", end='')
+        command = input()+'\n'
         return command, (command == "exit")
 
     def run_cmd(self, cmd):
-        print("Sending command")
+        dbprint("Sending command")
         self.process.stdin.write(cmd.encode())
-        print("Flushing")
+        dbprint("Flushing")
         self.process.stdin.flush()
         # process_out = self.process.stdout.readline()
-        # print(process_out.decode())
+        # dbprint(process_out.decode())
 
     def print_board_state(self):
         t = Table(self.num_cols, self.num_rows)
         data=self.read_proccess_memory()
+        if not data:
+              dbprint("wrapper cannot continue...")
         for cur_row in range(self.num_rows):
             for cur_col in range(self.num_cols):
                 t.table[cur_row][cur_col] = chr(data[cur_col+cur_row*self.num_cols])
-        print(t)
-
+        dbprint(t)
