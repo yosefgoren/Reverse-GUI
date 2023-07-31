@@ -5,11 +5,25 @@ from colorama import Fore, Back, Style
 import time
 
 N_ROWS_LIKE_N_COLS = None
+COLOR_MAP = {
+    "green" : Fore.GREEN,
+    "red" : Fore.RED,
+    "blue" : Fore.BLUE
+}
 
-def dbprint(msg, **kwargs):
+def color_print(msg, **kwargs):
+    color_prefix = Fore.GREEN
+    if 'color' in kwargs:
+        color_flag = kwargs['color']
+        if color_flag in COLOR_MAP:
+            color_prefix = COLOR_MAP[kwargs['color']]
+        else:
+            print(f"'color_print' got unrecognized color flag: '{color_flag}'")
+        del kwargs['color']
+
     if msg is not str:
         msg = str(msg)
-    print(Fore.GREEN + msg + Fore.WHITE, **kwargs)
+    print(color_prefix + msg + Fore.WHITE, **kwargs)
 
 class Table:
 	def __init__(self, n_cols:int=8, n_rows:int=N_ROWS_LIKE_N_COLS, default_value:str = '.'):
@@ -31,7 +45,7 @@ class Table:
 		return res
 
 	def show(self):
-		dbprint(self)
+		color_print(self)
                 
 class ProcessWrapper:
     def __init__(self, path_to_tgt: str, process_args: list, start_addr: int, num_cols: int, num_rows: int, high_row_addr_top: bool = True):
@@ -77,23 +91,23 @@ class ProcessWrapper:
         self.print_board_state()
 
     def get_cmd(self):
-        dbprint("pass input: ", end='')
+        color_print("pass input: ", end='')
         command = input()+'\n'
         return command, (command == "exit")
 
     def run_cmd(self, cmd):
-        dbprint("Sending command")
+        color_print("Sending command")
         self.process.stdin.write(cmd.encode())
-        dbprint("Flushing")
+        color_print("Flushing")
         self.process.stdin.flush()
         # process_out = self.process.stdout.readline()
-        # dbprint(process_out.decode())
+        # color_print(process_out.decode())
 
     def print_board_state(self):
         t = Table(self.num_cols, self.num_rows)
         data=self.read_proccess_memory()
         if not data:
-              dbprint("wrapper cannot continue...")
+              color_print("wrapper cannot continue...")
         for cur_row in range(self.num_rows):
             for cur_col in range(self.num_cols):
                 curr_val = data[cur_col+cur_row*self.num_cols]
@@ -101,4 +115,4 @@ class ProcessWrapper:
                     t.table[cur_row][cur_col] = chr(data[cur_col+cur_row*self.num_cols])
                 else:
                     t.table[cur_row][cur_col] = str(data[cur_col+cur_row*self.num_cols])
-        dbprint(t)
+        color_print(t, color='blue')
