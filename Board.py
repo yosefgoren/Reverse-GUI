@@ -179,10 +179,13 @@ class ProcessWrapper:
             # try to run modules
             for operation, start, size, granularity in self.modules:
                 try:
-                    input_array = ProcessWrapper.read_proccess_memory(self.process.pid, start, size)
-                    if granularity == Granularity.DWORD:
-                        input_array = convert_little_endian_dwords(input_array)
-                    operation(self, input_array)
+                    if start is not None and size is not None:
+                        input_array = ProcessWrapper.read_proccess_memory(self.process.pid, start, size)
+                        if granularity == Granularity.DWORD:
+                            input_array = convert_little_endian_dwords(input_array)
+                        operation(self, input_array)
+                    else:
+                        operation(self)
                 except Exception as e:
                     color_print(f"failed to run module '{operation.__name__}' due to exception: '{e}'", color='red')
 
@@ -190,6 +193,9 @@ class ProcessWrapper:
             cmd, exit_flag = self.get_cmd()
             self.run_cmd(cmd)
         self.print_board_state()
+
+    def linpos(self, row_idx: int, col_idx: int)->int:
+        return self.num_cols*row_idx+col_idx
 
     def get_cmd(self):
         color_print("pass input: ", end='')
@@ -246,11 +252,15 @@ class ProcessWrapper:
 
             'operation' will likely write to 'wrapper_obj.cur_data'.
         """
-        if (type(input_addr_range) is not tuple) or (type(input_addr_range[0]) is not int) or (type(input_addr_range[1]) is not int):
-            color_print(f"'add_module' expected 'input_addr_range' to be a tuple of ints but got: '{input_addr_range}'", color='red')
-            exit(1)
-        start = input_addr_range[0]
-        size = input_addr_range[1]-input_addr_range[0]
+        if input_addr_range is None:
+            start = None
+            size = None
+        else:
+            if (type(input_addr_range) is not tuple) or (type(input_addr_range[0]) is not int) or (type(input_addr_range[1]) is not int):
+                color_print(f"'add_module' expected 'input_addr_range' to be None or a tuple of ints but got: '{input_addr_range}'", color='red')
+                exit(1)
+            start = input_addr_range[0]
+            size = input_addr_range[1]-input_addr_range[0]
         
         self.modules.append((operation, start, size, granularity))
          
