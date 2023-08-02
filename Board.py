@@ -1,4 +1,3 @@
-
 import subprocess
 import ctypes
 from enum import Enum
@@ -24,6 +23,11 @@ class HorizontalLayout(Enum):
 class VerticalLayout(Enum):
     TOP_SIDE_LOW_ADDR = 1
     BOT_SIDE_LOW_ADDR = 2
+
+class TableIndirection(Enum):
+    STATIC = 1
+    POINTER = 2
+    HOOK = 3
 
 def color_print(msg, **kwargs):
     color_prefix = Fore.GREEN
@@ -107,7 +111,7 @@ class Table:
 def join_dword(bytes_list: list)->int:
     res = 0
     for byte in bytes_list:
-        res = res<<2 | byte
+        res = res<<8 | byte
     return res 
 
 def convert_little_endian_dwords(bytes_list: list)->list:
@@ -128,6 +132,7 @@ class ProcessWrapper:
             num_cols: int,
             num_rows: int,
             process_args: list = [],
+            table_indirection: TableIndirection = TableIndirection.STATIC,
             horizontal_layout: HorizontalLayout = HorizontalLayout.LEFT_SIDE_LOW_ADDR,
             vertical_layout: VerticalLayout = VerticalLayout.TOP_SIDE_LOW_ADDR    
         ):
@@ -142,6 +147,7 @@ class ProcessWrapper:
 
         self.table = Table(self.num_cols, self.num_rows, ' ', horizontal_layout, vertical_layout)
 
+        self.table_indirection = table_indirection
         self.prev_data = None
         self.cur_data = None
 
@@ -174,7 +180,8 @@ class ProcessWrapper:
         exit_flag = False
         while not exit_flag:
             time.sleep(0.1)
-            self.update_data()
+            if self.update_data() is False:
+                continue
             
             # try to run modules
             for operation, start, size, granularity in self.modules:
@@ -200,7 +207,7 @@ class ProcessWrapper:
     def get_cmd(self):
         color_print("pass input: ", end='')
         command = input()+'\n'
-        return command, (command == "exit")
+        return command, (command.startswith("exit"))
 
     def run_cmd(self, cmd):
         color_print("Sending command")
@@ -208,9 +215,34 @@ class ProcessWrapper:
         color_print("Flushing")
         self.process.stdin.flush()
 
-    def update_data(self):
+    def update_data(self)->bool:
+        if self.table_indirection == TableIndirection.STATIC:
+            table_addr = self.start_addr
+        elif self.table_indirection == TableIndirection.POINTER:
+            addr_bytes = ProcessWrapper.read_proccess_memory(self.process.pid, self.start_addr, 4)
+            if len(addr_bytes) != 4:
+                color_print(f"could not read pointer to table. pointer addr 0x{self.start_addr:x}", color="red")
+                return False
+            # table_addr = convert_little_endian_dwords(addr_bytes)[0]
+            table_addr = join_dword(addr_bytes[::-1])
+        elif self.table_indirection == TableIndirection.HOOK:
+            MALLOC_HOOK_LOG_FILENAME = f"malloc_hook_log.txt"
+            #open file created by hook and read the address from there
+            with open(MALLOC_HOOK_LOG_FILENAME, 'r') as f:
+                #read one line:
+                addr_str = f.readline()
+                if not addr_str:
+                    color_print(f"could not read table pointer addr from file '{MALLOC_HOOK_LOG_FILENAME}'", color="red")
+                #convert to number:
+                table_addr = int(addr_str)
+        else:
+            color_print(f"got unrecognized table indirection type '{self.table_indirection}'", color="red")
+            return False
+
+        color_print(f"start is at 0x{self.start_addr:x} table is at 0x{table_addr:x}", color="green")
         self.prev_data = self.cur_data
-        self.cur_data = ProcessWrapper.read_proccess_memory(self.process.pid, self.start_addr, self.size)
+        self.cur_data = ProcessWrapper.read_proccess_memory(self.process.pid, table_addr, self.size)
+        return True
 
     @staticmethod
     def find_diff_positions(nested_ls_a: list, nested_ls_b: list)->set:
