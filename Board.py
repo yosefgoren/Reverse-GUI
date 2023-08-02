@@ -88,8 +88,8 @@ def color_print(msg, **kwargs):
 
     if msg is not str:
         msg = str(msg)
-    else:
-        print(color_prefix + msg + Fore.WHITE, **kwargs)
+    
+    print(color_prefix + msg + Fore.WHITE, **kwargs)
 
 class Table:
     def __init__(self,
