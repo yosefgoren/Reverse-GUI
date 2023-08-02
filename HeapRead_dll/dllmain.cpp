@@ -1,13 +1,42 @@
 #include "pch.h"
 #include <Windows.h>
 #include <stdio.h>
-// Add additional includes if needed
-// using namespace std;
-
-// for logging. format: log_file << ... << std::endl;
+#include <sstream>
 #include <fstream> 
 using std::ofstream;
 ofstream log_file("trace_dll_log.txt");
+
+unsigned parse_hex(const std::string& str) {
+	unsigned result = 0;
+	std::stringstream stream(str);
+	if (!(stream >> std::hex >> result)) {
+		throw std::runtime_error("Invalid hexadecimal number.");
+	}
+	return result;
+}
+
+unsigned PROGRAM_BASE, MALLOC_ADDR, EXIT_ADDR;
+const std::string ADDRESSES_FILENAME = "hook_tgt_addresses.txt";
+void read_addresses_from_file(){
+	std::ifstream file(ADDRESSES_FILENAME);
+	if (!file.is_open()) {
+		throw std::runtime_error("Error opening file.");
+	}
+
+	std::string line;
+	if (!std::getline(file, line)) {
+		throw std::runtime_error("Error reading first line from file.");
+	}
+	PROGRAM_BASE = parse_hex(line);
+	if (!std::getline(file, line)) {
+		throw std::runtime_error("Error reading second line from file.");
+	}
+	MALLOC_ADDR = parse_hex(line);
+	if (!std::getline(file, line)) {
+		throw std::runtime_error("Error reading third line from file.");
+	}
+	EXIT_ADDR = parse_hex(line);
+}
 
 // Typedef for the hooked function signature, such as:
 typedef char*(*FUNC_PTR)(int);
@@ -62,6 +91,7 @@ void* _cdecl mallocHook(int size) {
 	return addr;
 		
 }
+
 void _cdecl exitHook() {
 	
 	//for (size_t i = 0; i < tbl_size; i++)
@@ -89,9 +119,11 @@ void setHook() {
 		log_file << "failed finding cexit" << std::endl;
 		return;
 	}
-	int addr_beginning_of_our_exe = 0x400000; // change!
-	int addr_func_to_hook_in_IAT_malloc = 0x40E1DC; // change!
-	int addr_func_to_hook_in_IAT_exit = 0x40E1C4; // change!
+	read_addresses_from_file();
+	int addr_beginning_of_our_exe = PROGRAM_BASE; // 0x400000;
+	int addr_func_to_hook_in_IAT_malloc = MALLOC_ADDR; // 0x40E1DC;
+	int addr_func_to_hook_in_IAT_exit = EXIT_ADDR; // 0x40E1C4;
+	printf("%x, %x, %x\n", addr_beginning_of_our_exe, addr_func_to_hook_in_IAT_malloc, addr_func_to_hook_in_IAT_exit);
 	IAT_malloc = h + (addr_func_to_hook_in_IAT_malloc - addr_beginning_of_our_exe) / 4; // Calc address of address to override in IAT
 	IAT_exit = h + (addr_func_to_hook_in_IAT_exit - addr_beginning_of_our_exe) / 4; // Calc address of address to override in IAT
 	JumpTo_malloc = (FUNC_PTR)((char*)&mallocHook);

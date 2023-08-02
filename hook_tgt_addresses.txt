@@ -1,0 +1,7 @@
+0x400000
+0x40E1DC
+0x40E1C4
+
+first is program base
+second is malloc IAT address
+third is exit IAT address
