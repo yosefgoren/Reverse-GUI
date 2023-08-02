@@ -2,9 +2,11 @@ import subprocess
 import ctypes
 from enum import Enum
 from ctypes import wintypes
+import colorama
 from colorama import Fore, Back, Style
 import time
 import os, signal
+import random
 
 N_ROWS_LIKE_N_COLS = None
 COLOR_MAP = {
@@ -64,8 +66,15 @@ class HookTableIndirection(TableIndirection):
             match allocations with the wanted size
         """
         return HookTableIndirection(lambda idx, addr, size: size == wanted_size)
-        
-        
+
+def add_random_color(s, seed = None):
+    if seed is None:
+        seed = ord(s[0])
+    colorama.init()
+    random.seed(seed)
+    color_list = [Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN, Fore.WHITE]
+    random_color = random.choice(color_list)
+    return f"{random_color}{s}{Style.RESET_ALL}"
 
 def color_print(msg, **kwargs):
     color_prefix = Fore.GREEN
@@ -79,7 +88,8 @@ def color_print(msg, **kwargs):
 
     if msg is not str:
         msg = str(msg)
-    print(color_prefix + msg + Fore.WHITE, **kwargs)
+    else:
+        print(color_prefix + msg + Fore.WHITE, **kwargs)
 
 class Table:
     def __init__(self,
@@ -124,7 +134,7 @@ class Table:
         for row_idx, row in enumerate(self.rows_list):
             this_row = Table.sfill(str(row_idx), NUM_LEFT_SPACES)+"|"
             for cell in row:
-                this_row += " "+cell+" |"
+                this_row += " "+add_random_color(cell)+" |"
             if self.horizontal_layout == HorizontalLayout.RIGHT_SIDE_LOW_ADDR:
                 this_row = this_row[::-1]
             printable_row_list.append(this_row)
@@ -355,7 +365,7 @@ class ProcessWrapper:
                     self.table.rows_list[cur_row][cur_col] = hex(self.cur_data[lin_pos])[2:]
                 if lin_pos in diff_positions:
                     self.table.rows_list[cur_row][cur_col] = Fore.RED + self.table.rows_list[cur_row][cur_col] + Fore.BLUE
-        color_print(self.table, color='blue')
+        print(self.table)
 
 
     def add_module(self, input_addr_range: tuple, operation, granularity=Granularity.DWORD):
