@@ -34,19 +34,31 @@ class PointerTableIndirection(TableIndirection):
     pass
 
 class HookTableIndirection(TableIndirection):
-    def __init__(self, allocation_filter):
+    def __init__(self, allocation_filter = None):
+        """
+            default behaviour is to accept any allocation,
+            which will mean the first allocation will be treated as the targeted one.
+        """
+        if(allocation_filter is None):
+            self.allocation_filter = lambda idx, addr, size: True
         self.allocation_filter = allocation_filter
     
     @staticmethod
     def create_any_match()->bool:
-        return HookTableIndirection(lambda idx, addr, size: True)
+        return HookTableIndirection()
 
     @staticmethod
     def create_idx_match(wanted_idx: int):
+        """
+            match allocations with the wanted index (if index is 0 - the first allocation will be matched, etc.)
+        """
         return HookTableIndirection(lambda idx, addr, size: idx == wanted_idx)
     
     @staticmethod
     def create_size_match(wanted_size: int):
+        """
+            match allocations with the wanted size
+        """
         return HookTableIndirection(lambda idx, addr, size: size == wanted_size)
         
         
