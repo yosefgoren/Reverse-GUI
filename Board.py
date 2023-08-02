@@ -234,10 +234,11 @@ class ProcessWrapper:
             for cur_col in range(self.num_cols):
                 lin_pos = cur_col+cur_row*self.num_cols
                 curr_val = self.cur_data[lin_pos]
-                if curr_val > 9:
+                if curr_val > 31 and curr_val<128:
                     self.table.rows_list[cur_row][cur_col] = chr(self.cur_data[lin_pos])
                 else:
-                    self.table.rows_list[cur_row][cur_col] = str(self.cur_data[lin_pos])
+                    #can change representation to bin() if wanted
+                    self.table.rows_list[cur_row][cur_col] = hex(self.cur_data[lin_pos])
                 if lin_pos in diff_positions:
                     self.table.rows_list[cur_row][cur_col] = Fore.RED + self.table.rows_list[cur_row][cur_col] + Fore.BLUE
         color_print(self.table, color='blue')
