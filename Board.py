@@ -4,6 +4,7 @@ from enum import Enum
 from ctypes import wintypes
 from colorama import Fore, Back, Style
 import time
+import os, signal
 
 N_ROWS_LIKE_N_COLS = None
 COLOR_MAP = {
@@ -173,13 +174,16 @@ class ProcessWrapper:
             horizontal_layout: HorizontalLayout = HorizontalLayout.LEFT_SIDE_LOW_ADDR,
             vertical_layout: VerticalLayout = VerticalLayout.TOP_SIDE_LOW_ADDR    
         ):
-        if process_args is not list:
+        if type(process_args) is not list:
             process_args = [process_args]
         process_args = map(str, process_args)
 
         self.num_rows = num_rows
         self.num_cols = num_cols
         self.start_addr = start_addr
+        if self.start_addr is None:
+            self.start_addr = 0
+            assert(type(table_indirection) is HookTableIndirection)
         self.size = num_cols * num_rows
 
         self.table = Table(self.num_cols, self.num_rows, ' ', horizontal_layout, vertical_layout)
@@ -191,9 +195,10 @@ class ProcessWrapper:
         self.modules = []
         
         if type(table_indirection) is HookTableIndirection:
-            TRACE_DLL_FILENAME = "Trace.dll"
+            TRACE_DLL_FILENAME = "HeapRead_dll.dll"
             INJECTOR_FILENAME = "Injector.exe" 
             commands_list = [INJECTOR_FILENAME, path_to_tgt, TRACE_DLL_FILENAME, *process_args]
+            assert(not start_addr)
         else:
             commands_list = [path_to_tgt, *process_args]
         self.process = subprocess.Popen(commands_list, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -220,29 +225,38 @@ class ProcessWrapper:
         return data
 
     def main_loop(self):
-        exit_flag = False
-        while not exit_flag:
-            time.sleep(0.1)
-            if self.update_data() is False:
-                continue
-            
-            # try to run modules
-            for operation, start, size, granularity in self.modules:
-                try:
-                    if start is not None and size is not None:
-                        input_array = self.read_proccess_memory(start, size)
-                        if granularity == Granularity.DWORD:
-                            input_array = convert_little_endian_dwords(input_array)
-                        operation(self, input_array)
-                    else:
-                        operation(self)
-                except Exception as e:
-                    color_print(f"failed to run module '{operation.__name__}' due to exception: '{e}'", color='red')
+        try:
+            time.sleep(0.5)
+            exit_flag = False
+            while not exit_flag:
+                time.sleep(0.1)
+                if self.update_data() is False:
+                    continue
+                
+                # try to run modules
+                for operation, start, size, granularity in self.modules:
+                    try:
+                        if start is not None and size is not None:
+                            input_array = self.read_proccess_memory(start, size)
+                            if granularity == Granularity.DWORD:
+                                input_array = convert_little_endian_dwords(input_array)
+                            operation(self, input_array)
+                        else:
+                            operation(self)
+                    except Exception as e:
+                        color_print(f"failed to run module '{operation.__name__}' due to exception: '{e}'", color='red')
 
+                self.print_board_state()
+                cmd, exit_flag = self.get_cmd()
+                self.run_cmd(cmd)
             self.print_board_state()
-            cmd, exit_flag = self.get_cmd()
-            self.run_cmd(cmd)
-        self.print_board_state()
+        except Exception as e:
+            color_print(f"failed to run main loop due to exception: '{e}'", color='red')
+        finally:
+            self.process.kill()
+            color_print(f"tgt_process is {self.tgt_pid}", color='red')
+            #kill tgt process
+            os.kill(self.tgt_pid, signal.SIGTERM)
 
     def linpos(self, row_idx: int, col_idx: int)->int:
         return self.num_cols*row_idx+col_idx
@@ -259,6 +273,7 @@ class ProcessWrapper:
         self.process.stdin.flush()
 
     def update_data(self)->bool:
+        table_addr = None
         if type(self.table_indirection) is StaticTableIndirection:
             table_addr = self.start_addr
         elif type(self.table_indirection) is PointerTableIndirection:
@@ -286,6 +301,11 @@ class ProcessWrapper:
 
                     if self.table_indirection.allocation_filter(idx, addr, size) is True:
                         table_addr = addr
+                        break
+                
+            if table_addr is None:
+                color_print(f"none of the allocations matched the filter", color="red")
+                return False
 
         else:
             color_print(f"got unrecognized table indirection type '{self.table_indirection}'", color="red")
