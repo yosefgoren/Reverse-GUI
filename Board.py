@@ -172,7 +172,9 @@ class ProcessWrapper:
             process_args: list = [],
             table_indirection: TableIndirection = StaticTableIndirection(),
             horizontal_layout: HorizontalLayout = HorizontalLayout.LEFT_SIDE_LOW_ADDR,
-            vertical_layout: VerticalLayout = VerticalLayout.TOP_SIDE_LOW_ADDR    
+            vertical_layout: VerticalLayout = VerticalLayout.TOP_SIDE_LOW_ADDR,
+            transpose_data: bool = False,
+            cell_granularity: Granularity = Granularity.BYTE
         ):
         if type(process_args) is not list:
             process_args = [process_args]
@@ -184,9 +186,11 @@ class ProcessWrapper:
         if self.start_addr is None:
             self.start_addr = 0
             assert(type(table_indirection) is HookTableIndirection)
-        self.size = num_cols * num_rows
+        self.size_in_bytes = num_cols*num_rows*(4 if cell_granularity == Granularity.DWORD else 1)
 
         self.table = Table(self.num_cols, self.num_rows, ' ', horizontal_layout, vertical_layout)
+        self.transpose_data = transpose_data
+        self.cell_granularity = cell_granularity
 
         self.table_indirection = table_indirection
         self.prev_data = None
@@ -250,16 +254,21 @@ class ProcessWrapper:
                 cmd, exit_flag = self.get_cmd()
                 self.run_cmd(cmd)
             self.print_board_state()
-        except Exception as e:
-            color_print(f"failed to run main loop due to exception: '{e}'", color='red')
         finally:
             self.process.kill()
-            color_print(f"tgt_process is {self.tgt_pid}", color='red')
-            #kill tgt process
-            os.kill(self.tgt_pid, signal.SIGTERM)
+            if type(self.table_indirection) is HookTableIndirection:
+                color_print(f"tgt_process is {self.tgt_pid}", color='red')
+                #kill tgt process
+                os.kill(self.tgt_pid, signal.SIGTERM)
 
     def linpos(self, row_idx: int, col_idx: int)->int:
-        return self.num_cols*row_idx+col_idx
+        if self.transpose_data:
+            idx =  self.num_rows*col_idx+row_idx
+        else:
+            idx =  self.num_cols*row_idx+col_idx
+        if self.cell_granularity is Granularity.DWORD:
+            idx *= 4
+        return idx
 
     def get_cmd(self):
         color_print("pass input: ", end='')
@@ -313,7 +322,7 @@ class ProcessWrapper:
 
         color_print(f"start is at 0x{self.start_addr:x} table is at 0x{table_addr:x}", color="green")
         self.prev_data = self.cur_data
-        self.cur_data = self.read_proccess_memory(table_addr, self.size)
+        self.cur_data = self.read_proccess_memory(table_addr, self.size_in_bytes)
         return True
 
     @staticmethod
@@ -336,8 +345,9 @@ class ProcessWrapper:
 
         for cur_row in range(self.num_rows):
             for cur_col in range(self.num_cols):
-                lin_pos = cur_col+cur_row*self.num_cols
+                lin_pos = self.linpos(cur_row, cur_col)
                 curr_val = self.cur_data[lin_pos]
+                
                 if curr_val > 15 and curr_val<128:
                     self.table.rows_list[cur_row][cur_col] = chr(self.cur_data[lin_pos])
                 else:
