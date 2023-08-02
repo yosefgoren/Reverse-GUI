@@ -38,6 +38,9 @@ class HookTableIndirection(TableIndirection):
         """
             default behaviour is to accept any allocation,
             which will mean the first allocation will be treated as the targeted one.
+
+            can also pass arbitrary condition over the allocation index, address and size.
+            allocation_filter is a function in the form '(idx: int, addr: int, size: int)->bool'.
         """
         if(allocation_filter is None):
             self.allocation_filter = lambda idx, addr, size: True
@@ -186,8 +189,14 @@ class ProcessWrapper:
         self.cur_data = None
 
         self.modules = []
-
-        self.process = subprocess.Popen([path_to_tgt, *process_args], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        if type(table_indirection) is HookTableIndirection:
+            TRACE_DLL_FILENAME = "Trace.dll"
+            INJECTOR_FILENAME = "Injector.exe" 
+            commands_list = [INJECTOR_FILENAME, path_to_tgt, TRACE_DLL_FILENAME, *process_args]
+        else:
+            commands_list = [path_to_tgt, *process_args]
+        self.process = subprocess.Popen(commands_list, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         self.tgt_pid = self.process.pid
 
         #need to define 'process, base_addr, size'
@@ -259,19 +268,22 @@ class ProcessWrapper:
                 return False
             table_addr = join_dword(addr_bytes[::-1])
         elif type(self.table_indirection) is HookTableIndirection:
-            MALLOC_HOOK_LOG_FILENAME = f"malloc_hook_log.txt"
+            TRACE_DLL_LOG_FILENAME = "trace_dll_log.txt"
             #open file created by hook and read the address from there
-            with open(MALLOC_HOOK_LOG_FILENAME, 'r') as f:
+            with open(TRACE_DLL_LOG_FILENAME, 'r') as f:
                 #read first line:
                 tgt_pid = f.readline()
                 if not tgt_pid:
-                    color_print(f"could not read pid from file '{MALLOC_HOOK_LOG_FILENAME}'", color="red")
+                    color_print(f"could not read pid from file '{TRACE_DLL_LOG_FILENAME}'", color="red")
                     return False
-                self.tgt_pid = int(tgt_pid)
+                self.tgt_pid = int(tgt_pid, 16)
                 
                 #each next line is an allocation:
                 for idx, line in enumerate(f):
-                    addr, size = map(int, line.split())
+                    addr, size = line.split()
+                    addr = int(addr, 16)
+                    size = int(size, 16)
+
                     if self.table_indirection.allocation_filter(idx, addr, size) is True:
                         table_addr = addr
 
