@@ -24,10 +24,32 @@ class VerticalLayout(Enum):
     TOP_SIDE_LOW_ADDR = 1
     BOT_SIDE_LOW_ADDR = 2
 
-class TableIndirection(Enum):
-    STATIC = 1
-    POINTER = 2
-    HOOK = 3
+class TableIndirection:
+    pass
+
+class StaticTableIndirection(TableIndirection):
+    pass
+
+class PointerTableIndirection(TableIndirection):
+    pass
+
+class HookTableIndirection(TableIndirection):
+    def __init__(self, allocation_filter):
+        self.allocation_filter = allocation_filter
+    
+    @staticmethod
+    def create_any_match()->bool:
+        return HookTableIndirection(lambda idx, addr, size: True)
+
+    @staticmethod
+    def create_idx_match(wanted_idx: int):
+        return HookTableIndirection(lambda idx, addr, size: idx == wanted_idx)
+    
+    @staticmethod
+    def create_size_match(wanted_size: int):
+        return HookTableIndirection(lambda idx, addr, size: size == wanted_size)
+        
+        
 
 def color_print(msg, **kwargs):
     color_prefix = Fore.GREEN
@@ -132,7 +154,7 @@ class ProcessWrapper:
             num_cols: int,
             num_rows: int,
             process_args: list = [],
-            table_indirection: TableIndirection = TableIndirection.STATIC,
+            table_indirection: TableIndirection = StaticTableIndirection(),
             horizontal_layout: HorizontalLayout = HorizontalLayout.LEFT_SIDE_LOW_ADDR,
             vertical_layout: VerticalLayout = VerticalLayout.TOP_SIDE_LOW_ADDR    
         ):
@@ -154,13 +176,13 @@ class ProcessWrapper:
         self.modules = []
 
         self.process = subprocess.Popen([path_to_tgt, *process_args], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.tgt_pid = self.process.pid
 
         #need to define 'process, base_addr, size'
 
-    @staticmethod
-    def read_proccess_memory(pid, start_addr, size):
+    def read_proccess_memory(self, start_addr, size):
         # Get handle to the target process
-        process_handle = ctypes.windll.kernel32.OpenProcess(0x0010, False, pid)
+        process_handle = ctypes.windll.kernel32.OpenProcess(0x0010, False, self.tgt_pid)
 
         # Allocate a buffer to store the read bytes
         buffer = ctypes.create_string_buffer(size)
@@ -187,7 +209,7 @@ class ProcessWrapper:
             for operation, start, size, granularity in self.modules:
                 try:
                     if start is not None and size is not None:
-                        input_array = ProcessWrapper.read_proccess_memory(self.process.pid, start, size)
+                        input_array = self.read_proccess_memory(start, size)
                         if granularity == Granularity.DWORD:
                             input_array = convert_little_endian_dwords(input_array)
                         operation(self, input_array)
@@ -216,32 +238,38 @@ class ProcessWrapper:
         self.process.stdin.flush()
 
     def update_data(self)->bool:
-        if self.table_indirection == TableIndirection.STATIC:
+        if type(self.table_indirection) is StaticTableIndirection:
             table_addr = self.start_addr
-        elif self.table_indirection == TableIndirection.POINTER:
-            addr_bytes = ProcessWrapper.read_proccess_memory(self.process.pid, self.start_addr, 4)
+        elif type(self.table_indirection) is PointerTableIndirection:
+            addr_bytes = self.read_proccess_memory(self.start_addr, 4)
             if len(addr_bytes) != 4:
                 color_print(f"could not read pointer to table. pointer addr 0x{self.start_addr:x}", color="red")
                 return False
-            # table_addr = convert_little_endian_dwords(addr_bytes)[0]
             table_addr = join_dword(addr_bytes[::-1])
-        elif self.table_indirection == TableIndirection.HOOK:
+        elif type(self.table_indirection) is HookTableIndirection:
             MALLOC_HOOK_LOG_FILENAME = f"malloc_hook_log.txt"
             #open file created by hook and read the address from there
             with open(MALLOC_HOOK_LOG_FILENAME, 'r') as f:
-                #read one line:
-                addr_str = f.readline()
-                if not addr_str:
-                    color_print(f"could not read table pointer addr from file '{MALLOC_HOOK_LOG_FILENAME}'", color="red")
-                #convert to number:
-                table_addr = int(addr_str)
+                #read first line:
+                tgt_pid = f.readline()
+                if not tgt_pid:
+                    color_print(f"could not read pid from file '{MALLOC_HOOK_LOG_FILENAME}'", color="red")
+                    return False
+                self.tgt_pid = int(tgt_pid)
+                
+                #each next line is an allocation:
+                for idx, line in enumerate(f):
+                    addr, size = map(int, line.split())
+                    if self.table_indirection.allocation_filter(idx, addr, size) is True:
+                        table_addr = addr
+
         else:
             color_print(f"got unrecognized table indirection type '{self.table_indirection}'", color="red")
             return False
 
         color_print(f"start is at 0x{self.start_addr:x} table is at 0x{table_addr:x}", color="green")
         self.prev_data = self.cur_data
-        self.cur_data = ProcessWrapper.read_proccess_memory(self.process.pid, table_addr, self.size)
+        self.cur_data = self.read_proccess_memory(table_addr, self.size)
         return True
 
     @staticmethod
@@ -266,11 +294,11 @@ class ProcessWrapper:
             for cur_col in range(self.num_cols):
                 lin_pos = cur_col+cur_row*self.num_cols
                 curr_val = self.cur_data[lin_pos]
-                if curr_val > 31 and curr_val<128:
+                if curr_val > 15 and curr_val<128:
                     self.table.rows_list[cur_row][cur_col] = chr(self.cur_data[lin_pos])
                 else:
                     #can change representation to bin() if wanted
-                    self.table.rows_list[cur_row][cur_col] = hex(self.cur_data[lin_pos])
+                    self.table.rows_list[cur_row][cur_col] = hex(self.cur_data[lin_pos])[2:]
                 if lin_pos in diff_positions:
                     self.table.rows_list[cur_row][cur_col] = Fore.RED + self.table.rows_list[cur_row][cur_col] + Fore.BLUE
         color_print(self.table, color='blue')

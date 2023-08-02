@@ -1,2 +1,3 @@
 .vscode/
 __pycache__/
+malloc_hook_log.txt
